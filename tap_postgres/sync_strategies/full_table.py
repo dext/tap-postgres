@@ -39,24 +39,24 @@ def sync_view(conn_info, stream, state, desired_columns, md_map):
         singer.write_message(activate_version_message)
 
     with metrics.record_counter(None) as counter:
-        with post_db.open_connection(conn_info) as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor, name='stitch_cursor') as cur:
-                cur.itersize = post_db.cursor_iter_size
-                select_sql = 'SELECT {} FROM {}'.format(','.join(escaped_columns),
-                                                        post_db.fully_qualified_table_name(schema_name, stream['table_name']))
+        conn = post_db.open_connection(conn_info)
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.itersize = post_db.cursor_iter_size
+            select_sql = 'SELECT {} FROM {}'.format(','.join(escaped_columns),
+                                                    post_db.fully_qualified_table_name(schema_name, stream['table_name']))
 
-                LOGGER.info("select %s with itersize %s", select_sql, cur.itersize)
-                cur.execute(select_sql)
+            LOGGER.info("select %s with itersize %s", select_sql, cur.itersize)
+            cur.execute(select_sql)
 
-                rows_saved = 0
-                for rec in cur:
-                    record_message = post_db.selected_row_to_singer_message(stream, rec, nascent_stream_version, desired_columns, time_extracted, md_map)
-                    singer.write_message(record_message)
-                    rows_saved = rows_saved + 1
-                    if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
-                        singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
+            rows_saved = 0
+            for rec in cur:
+                record_message = post_db.selected_row_to_singer_message(stream, rec, nascent_stream_version, desired_columns, time_extracted, md_map)
+                singer.write_message(record_message)
+                rows_saved = rows_saved + 1
+                if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
+                    singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
 
-                    counter.increment()
+                counter.increment()
 
     #always send the activate version whether first run or subsequent
     singer.write_message(activate_version_message)
@@ -96,56 +96,56 @@ def sync_table(conn_info, stream, state, desired_columns, md_map):
 
     hstore_available = post_db.hstore_available(conn_info)
     with metrics.record_counter(None) as counter:
-        with post_db.open_connection(conn_info) as conn:
+        conn = post_db.open_connection(conn_info)
 
-            # Client side character encoding defaults to the value in postgresql.conf under client_encoding.
-            # The server / db can also have its own configred encoding.
-            with conn.cursor() as cur:
-                cur.execute("show server_encoding")
-                LOGGER.info("Current Server Encoding: %s", cur.fetchone()[0])
-                cur.execute("show client_encoding")
-                LOGGER.info("Current Client Encoding: %s", cur.fetchone()[0])
+        # Client side character encoding defaults to the value in postgresql.conf under client_encoding.
+        # The server / db can also have its own configred encoding.
+        with conn.cursor() as cur:
+            cur.execute("show server_encoding")
+            LOGGER.info("Current Server Encoding: %s", cur.fetchone()[0])
+            cur.execute("show client_encoding")
+            LOGGER.info("Current Client Encoding: %s", cur.fetchone()[0])
 
-            if hstore_available:
-                LOGGER.info("hstore is available")
-                psycopg2.extras.register_hstore(conn)
+        if hstore_available:
+            LOGGER.info("hstore is available")
+            psycopg2.extras.register_hstore(conn)
+        else:
+            LOGGER.info("hstore is UNavailable")
+
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.itersize = post_db.cursor_iter_size
+
+            xmin = singer.get_bookmark(state, stream['tap_stream_id'], 'xmin')
+            if xmin:
+                LOGGER.info("Resuming Full Table replication %s from xmin %s", nascent_stream_version, xmin)
+                select_sql = """SELECT {}, xmin::text::bigint
+                                  FROM {} where age(xmin::xid) <= age('{}'::xid)
+                                 ORDER BY xmin::text::bigint ASC""".format(','.join(escaped_columns),
+                                                                           post_db.fully_qualified_table_name(schema_name, stream['table_name']),
+                                                                           xmin)
             else:
-                LOGGER.info("hstore is UNavailable")
-
-            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor, name='stitch_cursor') as cur:
-                cur.itersize = post_db.cursor_iter_size
-
-                xmin = singer.get_bookmark(state, stream['tap_stream_id'], 'xmin')
-                if xmin:
-                    LOGGER.info("Resuming Full Table replication %s from xmin %s", nascent_stream_version, xmin)
-                    select_sql = """SELECT {}, xmin::text::bigint
-                                      FROM {} where age(xmin::xid) <= age('{}'::xid)
-                                     ORDER BY xmin::text::bigint ASC""".format(','.join(escaped_columns),
-                                                                               post_db.fully_qualified_table_name(schema_name, stream['table_name']),
-                                                                               xmin)
-                else:
-                    LOGGER.info("Beginning new Full Table replication %s", nascent_stream_version)
-                    select_sql = """SELECT {}, xmin::text::bigint
-                                      FROM {}
-                                     ORDER BY xmin::text::bigint ASC""".format(','.join(escaped_columns),
-                                                                               post_db.fully_qualified_table_name(schema_name, stream['table_name']))
+                LOGGER.info("Beginning new Full Table replication %s", nascent_stream_version)
+                select_sql = """SELECT {}, xmin::text::bigint
+                                  FROM {}
+                                 ORDER BY xmin::text::bigint ASC""".format(','.join(escaped_columns),
+                                                                           post_db.fully_qualified_table_name(schema_name, stream['table_name']))
 
 
-                LOGGER.info("select %s with itersize %s", select_sql, cur.itersize)
-                cur.execute(select_sql)
+            LOGGER.info("select %s with itersize %s", select_sql, cur.itersize)
+            cur.execute(select_sql)
 
-                rows_saved = 0
-                for rec in cur:
-                    xmin = rec['xmin']
-                    rec = rec[:-1]
-                    record_message = post_db.selected_row_to_singer_message(stream, rec, nascent_stream_version, desired_columns, time_extracted, md_map)
-                    singer.write_message(record_message)
-                    state = singer.write_bookmark(state, stream['tap_stream_id'], 'xmin', xmin)
-                    rows_saved = rows_saved + 1
-                    if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
-                        singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
+            rows_saved = 0
+            for rec in cur:
+                xmin = rec['xmin']
+                rec = rec[:-1]
+                record_message = post_db.selected_row_to_singer_message(stream, rec, nascent_stream_version, desired_columns, time_extracted, md_map)
+                singer.write_message(record_message)
+                state = singer.write_bookmark(state, stream['tap_stream_id'], 'xmin', xmin)
+                rows_saved = rows_saved + 1
+                if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
+                    singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
 
-                    counter.increment()
+                counter.increment()
 
     #once we have completed the full table replication, discard the xmin bookmark.
     #the xmin bookmark only comes into play when a full table replication is interrupted

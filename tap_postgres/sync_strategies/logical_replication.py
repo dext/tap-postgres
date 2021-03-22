@@ -33,19 +33,19 @@ def get_pg_version(cur):
     return version
 
 def fetch_current_lsn(conn_config):
-    with post_db.open_connection(conn_config, False) as conn:
-        with conn.cursor() as cur:
-            version = get_pg_version(cur)
-            if version == 9:
-                cur.execute("SELECT pg_current_xlog_location()")
-            elif version > 9:
-                cur.execute("SELECT pg_current_wal_lsn()")
-            else:
-                raise Exception('unable to fetch current lsn for PostgresQL version {}'.format(version))
+    conn = post_db.open_connection(conn_config, False)
+    with conn.cursor() as cur:
+        version = get_pg_version(cur)
+        if version == 9:
+            cur.execute("SELECT pg_current_xlog_location()")
+        elif version > 9:
+            cur.execute("SELECT pg_current_wal_lsn()")
+        else:
+            raise Exception('unable to fetch current lsn for PostgresQL version {}'.format(version))
 
-            current_lsn = cur.fetchone()[0]
-            file, index = current_lsn.split('/')
-            return (int(file, 16)  << 32) + int(index, 16)
+        current_lsn = cur.fetchone()[0]
+        file, index = current_lsn.split('/')
+        return (int(file, 16)  << 32) + int(index, 16)
 
 def add_automatic_properties(stream, conn_config):
     stream['schema']['properties']['_sdc_deleted_at'] = {'type' : ['null', 'string'], 'format' :'date-time'}
@@ -73,73 +73,73 @@ def create_hstore_elem_query(elem):
     return sql.SQL("SELECT hstore_to_array({})").format(sql.Literal(elem))
 
 def create_hstore_elem(conn_info, elem):
-    with post_db.open_connection(conn_info) as conn:
-        with conn.cursor() as cur:
-            query = create_hstore_elem_query(elem)
-            cur.execute(query)
-            res = cur.fetchone()[0]
-            hstore_elem = reduce(tuples_to_map, [res[i:i + 2] for i in range(0, len(res), 2)], {})
-            return hstore_elem
+    conn = post_db.open_connection(conn_info)
+    with conn.cursor() as cur:
+        query = create_hstore_elem_query(elem)
+        cur.execute(query)
+        res = cur.fetchone()[0]
+        hstore_elem = reduce(tuples_to_map, [res[i:i + 2] for i in range(0, len(res), 2)], {})
+        return hstore_elem
 
 def create_array_elem(elem, sql_datatype, conn_info):
     if elem is None:
         return None
 
-    with post_db.open_connection(conn_info) as conn:
-        with conn.cursor() as cur:
-            if sql_datatype == 'bit[]':
-                cast_datatype = 'boolean[]'
-            elif sql_datatype == 'boolean[]':
-                cast_datatype = 'boolean[]'
-            elif sql_datatype == 'character varying[]':
-                cast_datatype = 'character varying[]'
-            elif sql_datatype == 'cidr[]':
-                cast_datatype = 'cidr[]'
-            elif sql_datatype == 'citext[]':
-                cast_datatype = 'text[]'
-            elif sql_datatype == 'date[]':
-                cast_datatype = 'text[]'
-            elif sql_datatype == 'double precision[]':
-                cast_datatype = 'double precision[]'
-            elif sql_datatype == 'hstore[]':
-                cast_datatype = 'text[]'
-            elif sql_datatype == 'integer[]':
-                cast_datatype = 'integer[]'
-            elif sql_datatype == 'bigint[]':
-                cast_datatype = 'bigint[]'
-            elif sql_datatype == 'inet[]':
-                cast_datatype = 'inet[]'
-            elif sql_datatype == 'json[]':
-                cast_datatype = 'text[]'
-            elif sql_datatype == 'jsonb[]':
-                cast_datatype = 'text[]'
-            elif sql_datatype == 'macaddr[]':
-                cast_datatype = 'macaddr[]'
-            elif sql_datatype == 'money[]':
-                cast_datatype = 'text[]'
-            elif sql_datatype == 'numeric[]':
-                cast_datatype = 'text[]'
-            elif sql_datatype == 'real[]':
-                cast_datatype = 'real[]'
-            elif sql_datatype == 'smallint[]':
-                cast_datatype = 'smallint[]'
-            elif sql_datatype == 'text[]':
-                cast_datatype = 'text[]'
-            elif sql_datatype in ('time without time zone[]', 'time with time zone[]'):
-                cast_datatype = 'text[]'
-            elif sql_datatype in ('timestamp with time zone[]', 'timestamp without time zone[]'):
-                cast_datatype = 'text[]'
-            elif sql_datatype == 'uuid[]':
-                cast_datatype = 'text[]'
+    conn = post_db.open_connection(conn_info)
+    with conn.cursor() as cur:
+        if sql_datatype == 'bit[]':
+            cast_datatype = 'boolean[]'
+        elif sql_datatype == 'boolean[]':
+            cast_datatype = 'boolean[]'
+        elif sql_datatype == 'character varying[]':
+            cast_datatype = 'character varying[]'
+        elif sql_datatype == 'cidr[]':
+            cast_datatype = 'cidr[]'
+        elif sql_datatype == 'citext[]':
+            cast_datatype = 'text[]'
+        elif sql_datatype == 'date[]':
+            cast_datatype = 'text[]'
+        elif sql_datatype == 'double precision[]':
+            cast_datatype = 'double precision[]'
+        elif sql_datatype == 'hstore[]':
+            cast_datatype = 'text[]'
+        elif sql_datatype == 'integer[]':
+            cast_datatype = 'integer[]'
+        elif sql_datatype == 'bigint[]':
+            cast_datatype = 'bigint[]'
+        elif sql_datatype == 'inet[]':
+            cast_datatype = 'inet[]'
+        elif sql_datatype == 'json[]':
+            cast_datatype = 'text[]'
+        elif sql_datatype == 'jsonb[]':
+            cast_datatype = 'text[]'
+        elif sql_datatype == 'macaddr[]':
+            cast_datatype = 'macaddr[]'
+        elif sql_datatype == 'money[]':
+            cast_datatype = 'text[]'
+        elif sql_datatype == 'numeric[]':
+            cast_datatype = 'text[]'
+        elif sql_datatype == 'real[]':
+            cast_datatype = 'real[]'
+        elif sql_datatype == 'smallint[]':
+            cast_datatype = 'smallint[]'
+        elif sql_datatype == 'text[]':
+            cast_datatype = 'text[]'
+        elif sql_datatype in ('time without time zone[]', 'time with time zone[]'):
+            cast_datatype = 'text[]'
+        elif sql_datatype in ('timestamp with time zone[]', 'timestamp without time zone[]'):
+            cast_datatype = 'text[]'
+        elif sql_datatype == 'uuid[]':
+            cast_datatype = 'text[]'
 
-            else:
-                #custom datatypes like enums
-                cast_datatype = 'text[]'
+        else:
+            #custom datatypes like enums
+            cast_datatype = 'text[]'
 
-            sql_stmt = """SELECT $stitch_quote${}$stitch_quote$::{}""".format(elem, cast_datatype)
-            cur.execute(sql_stmt)
-            res = cur.fetchone()[0]
-            return res
+        sql_stmt = """SELECT $stitch_quote${}$stitch_quote$::{}""".format(elem, cast_datatype)
+        cur.execute(sql_stmt)
+        res = cur.fetchone()[0]
+        return res
 
 #pylint: disable=too-many-branches,too-many-nested-blocks
 def selected_value_to_singer_value_impl(elem, og_sql_datatype, conn_info):
@@ -384,21 +384,20 @@ def locate_replication_slot(conn_info):
         LOGGER.info("using pg_replication_slot %s", slot_name)
         return slot_name
 
-    with post_db.open_connection(conn_info, False) as conn:
-        with conn.cursor() as cur:
-            db_specific_slot = "stitch_{}".format(conn_info['dbname'])
-            cur.execute("SELECT * FROM pg_replication_slots WHERE slot_name = %s AND plugin = %s", (db_specific_slot, 'wal2json'))
-            if len(cur.fetchall()) == 1:
-                LOGGER.info("using pg_replication_slot %s", db_specific_slot)
-                return db_specific_slot
+    conn = post_db.open_connection(conn_info, False)
+    with conn.cursor() as cur:
+        db_specific_slot = "stitch_{}".format(conn_info['dbname'])
+        cur.execute("SELECT * FROM pg_replication_slots WHERE slot_name = %s AND plugin = %s", (db_specific_slot, 'wal2json'))
+        if len(cur.fetchall()) == 1:
+            LOGGER.info("using pg_replication_slot %s", db_specific_slot)
+            return db_specific_slot
 
+        cur.execute("SELECT * FROM pg_replication_slots WHERE slot_name = 'stitch' AND plugin = 'wal2json'")
+        if len(cur.fetchall()) == 1:
+            LOGGER.info("using pg_replication_slot 'stitch'")
+            return 'stitch'
 
-            cur.execute("SELECT * FROM pg_replication_slots WHERE slot_name = 'stitch' AND plugin = 'wal2json'")
-            if len(cur.fetchall()) == 1:
-                LOGGER.info("using pg_replication_slot 'stitch'")
-                return 'stitch'
-
-            raise Exception("Unable to find replication slot (stitch || {} with wal2json".format(db_specific_slot))
+        raise Exception("Unable to find replication slot (stitch || {} with wal2json".format(db_specific_slot))
 
 
 def sync_tables(conn_info, logical_streams, state, end_lsn):
@@ -418,59 +417,59 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
     for s in logical_streams:
         add_tables.append("{}.{}".format(s["metadata"][0]["metadata"]["schema-name"], s["table_name"]))
 
-    with post_db.open_connection(conn_info, True) as conn:
-        with conn.cursor() as cur:
-            LOGGER.info("Starting Logical Replication for %s(%s): %s -> %s. poll_total_seconds: %s", list(map(lambda s: s['tap_stream_id'], logical_streams)), slot, start_lsn, end_lsn, poll_total_seconds)
+    conn = post_db.open_connection(conn_info, True)
+    with conn.cursor() as cur:
+        LOGGER.info("Starting Logical Replication for %s(%s): %s -> %s. poll_total_seconds: %s", list(map(lambda s: s['tap_stream_id'], logical_streams)), slot, start_lsn, end_lsn, poll_total_seconds)
 
-            replication_params = {"slot_name": slot,
-                                  "decode": True,
-                                  "start_lsn": start_lsn,
-                                  "options": {
-                                      "add-tables": ", ".join(add_tables)
-                                  }}
-            message_format = conn_info.get("wal2json_message_format") or "1"
-            if message_format == "2":
-                LOGGER.info("Using wal2json format-version 2")
-                replication_params["options"]["format-version"] = 2
-                replication_params["options"]["include-timestamp"] = True
+        replication_params = {"slot_name": slot,
+                              "decode": True,
+                              "start_lsn": start_lsn,
+                              "options": {
+                                  "add-tables": ", ".join(add_tables)
+                              }}
+        message_format = conn_info.get("wal2json_message_format") or "1"
+        if message_format == "2":
+            LOGGER.info("Using wal2json format-version 2")
+            replication_params["options"]["format-version"] = 2
+            replication_params["options"]["include-timestamp"] = True
 
-            try:
-                cur.start_replication(**replication_params)
-            except psycopg2.ProgrammingError:
-                raise Exception("unable to start replication with logical replication slot {}".format(slot))
+        try:
+            cur.start_replication(**replication_params)
+        except psycopg2.ProgrammingError:
+            raise Exception("unable to start replication with logical replication slot {}".format(slot))
 
-            rows_saved = 0
-            while True:
-                poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
-                if poll_duration > poll_total_seconds:
-                    LOGGER.info("breaking after %s seconds of polling with no data", poll_duration)
+        rows_saved = 0
+        while True:
+            poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
+            if poll_duration > poll_total_seconds:
+                LOGGER.info("breaking after %s seconds of polling with no data", poll_duration)
+                break
+
+            msg = cur.read_message()
+            if msg:
+                begin_ts = datetime.datetime.now()
+                if msg.data_start > end_lsn:
+                    LOGGER.info("gone past end_lsn %s for run. breaking", end_lsn)
                     break
 
-                msg = cur.read_message()
-                if msg:
-                    begin_ts = datetime.datetime.now()
-                    if msg.data_start > end_lsn:
-                        LOGGER.info("gone past end_lsn %s for run. breaking", end_lsn)
-                        break
+                state = consume_message(logical_streams, state, msg, time_extracted,
+                                        conn_info, end_lsn, message_format=message_format)
+                #msg has been consumed. it has been processed
+                last_lsn_processed = msg.data_start
+                rows_saved = rows_saved + 1
+                if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
+                    singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
+            else:
+                now = datetime.datetime.now()
+                timeout = keep_alive_time - (now - cur.io_timestamp).total_seconds()
+                try:
+                    sel = select([cur], [], [], max(0, timeout))
+                    if not any(sel):
+                        LOGGER.info("no data for %s seconds. sending feedback to server with NO flush_lsn. just a keep-alive", timeout)
+                        cur.send_feedback()
 
-                    state = consume_message(logical_streams, state, msg, time_extracted,
-                                            conn_info, end_lsn, message_format=message_format)
-                    #msg has been consumed. it has been processed
-                    last_lsn_processed = msg.data_start
-                    rows_saved = rows_saved + 1
-                    if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
-                        singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
-                else:
-                    now = datetime.datetime.now()
-                    timeout = keep_alive_time - (now - cur.io_timestamp).total_seconds()
-                    try:
-                        sel = select([cur], [], [], max(0, timeout))
-                        if not any(sel):
-                            LOGGER.info("no data for %s seconds. sending feedback to server with NO flush_lsn. just a keep-alive", timeout)
-                            cur.send_feedback()
-
-                    except InterruptedError:
-                        pass  # recalculate timeout and continue
+                except InterruptedError:
+                    pass  # recalculate timeout and continue
 
     if last_lsn_processed:
         for s in logical_streams:
