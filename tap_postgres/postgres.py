@@ -49,7 +49,6 @@ class Postgres:
         connection_type = "logical" if logical_replication else "transactional"
 
         if not self.connections[connection_type] or self.connections[connection_type].closed:
-            singer.get_logger().info("New Connection", connection_type)
             config = Postgres.get_configuration(logical_replication)
             self.connections[connection_type] = psycopg2.connect(**config)
 
