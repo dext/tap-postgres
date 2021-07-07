@@ -136,8 +136,8 @@ def create_array_elem(elem, sql_datatype, conn_info):
             #custom datatypes like enums
             cast_datatype = 'text[]'
 
-        sql_stmt = """SELECT $stitch_quote${}$stitch_quote$::{}""".format(elem, cast_datatype)
-        cur.execute(sql_stmt)
+        sql_stmt = 'select %s::{}'.format(cast_datatype)
+        cur.execute(sql_stmt, (elem, ))
         res = cur.fetchone()[0]
         return res
 
