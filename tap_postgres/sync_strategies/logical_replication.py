@@ -21,6 +21,8 @@ LOGGER = singer.get_logger()
 
 UPDATE_BOOKMARK_PERIOD = 1000
 
+COUNTER={'U': 0, 'D': 0, 'I': 0}
+
 def get_pg_version(cur):
     cur.execute("SELECT version()")
     res = cur.fetchone()[0]
@@ -235,6 +237,8 @@ def consume_message_format_2(payload, conn_info, streams_lookup, state, time_ext
         if streams_lookup.get(tap_stream_id) is None:
             yield None
         else:
+            COUNTER[action] += 1
+            LOGGER.debug(" -- Tap Stream ID = %s, action - %s (counter - %s)", tap_stream_id, payload['action'], str(COUNTER))
             target_stream = streams_lookup[tap_stream_id]
             stream_version = get_stream_version(target_stream['tap_stream_id'], state)
             stream_md_map = metadata.to_map(target_stream['metadata'])
@@ -405,7 +409,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
     time_extracted = utils.now()
     slot = locate_replication_slot(conn_info)
     last_lsn_processed = None
-    poll_total_seconds = conn_info['logical_poll_total_seconds'] or 60 * 30  #we are willing to poll for a total of 30 minutes without finding a record
+    poll_total_seconds = conn_info['logical_poll_total_seconds'] or 60 * 5  #we are willing to poll for a total of 3 minutes without finding a record
     keep_alive_time = 10.0
     begin_ts = datetime.datetime.now()
     add_tables = []
@@ -443,6 +447,8 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
             poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
             if poll_duration > poll_total_seconds:
                 LOGGER.info("breaking after %s seconds of polling with no data", poll_duration)
+                if not last_lsn_processed:
+                    cur.send_feedback(flush_lsn=end_lsn)
                 break
 
             msg = cur.read_message()
@@ -458,6 +464,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                 last_lsn_processed = msg.data_start
                 rows_saved = rows_saved + 1
                 if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
+                    LOGGER.info("Rows saved = %s, Processed messages counter: %s", str(rows_saved), str(COUNTER))
                     singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
             else:
                 now = datetime.datetime.now()
@@ -471,10 +478,11 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                 except InterruptedError:
                     pass  # recalculate timeout and continue
 
-    if last_lsn_processed:
-        for s in logical_streams:
-            LOGGER.info("updating bookmark for stream %s to last_lsn_processed %s", s['tap_stream_id'], last_lsn_processed)
-            state = singer.write_bookmark(state, s['tap_stream_id'], 'lsn', last_lsn_processed)
+    bookmark_lsn = last_lsn_processed if last_lsn_processed else end_lsn
+    LOGGER.info("Finished processing messages - counter: %s", str(COUNTER))
+    for s in logical_streams:
+        LOGGER.info("updating bookmark for stream %s to last_lsn_processed %s", s['tap_stream_id'], bookmark_lsn)
+        state = singer.write_bookmark(state, s['tap_stream_id'], 'lsn', bookmark_lsn)
 
     singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
     return state
