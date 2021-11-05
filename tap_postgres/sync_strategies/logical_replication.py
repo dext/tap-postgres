@@ -21,7 +21,7 @@ LOGGER = singer.get_logger()
 
 UPDATE_BOOKMARK_PERIOD = 1000
 
-COUNTER={'U': 0, 'D': 0, 'I': 0}
+COUNTER={'U': 0, 'D': 0, 'I': 0, 'json_load': 0, 'read_message': 0, 'send_message': 0}
 
 def get_pg_version(cur):
     cur.execute("SELECT version()")
@@ -274,7 +274,9 @@ def consume_message_format_2(payload, conn_info, streams_lookup, state, time_ext
                     col_names = col_names + ['_sdc_lsn']
 
             # Yield 1 record to match the API of V1
+            send_message_start = datetime.datetime.now()
             yield row_to_singer_message(target_stream, col_vals, stream_version, col_names, time_extracted, stream_md_map, conn_info)
+            COUNTER['send_message'] += (datetime.datetime.now() - send_message_start).total_seconds()
 
             state = singer.write_bookmark(state,
                                           target_stream['tap_stream_id'],
@@ -354,7 +356,9 @@ def consume_message_format_1(payload, conn_info, streams_lookup, state, time_ext
 
 
 def consume_message(streams, state, msg, time_extracted, conn_info, end_lsn, message_format="1"):
+    load_json_start = datetime.datetime.now()
     payload = json.loads(msg.payload)
+    COUNTER['json_load'] += (datetime.datetime.now() - load_json_start).total_seconds()
     lsn = msg.data_start
 
     streams_lookup = {s['tap_stream_id']: s for s in streams}
@@ -451,11 +455,15 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                     cur.send_feedback(flush_lsn=end_lsn)
                 break
 
+            read_message_start = datetime.datetime.now()
             msg = cur.read_message()
+            COUNTER['read_message'] += (datetime.datetime.now() - read_message_start).total_seconds()
             if msg:
                 begin_ts = datetime.datetime.now()
                 if msg.data_start > end_lsn:
                     LOGGER.info("gone past end_lsn %s for run. breaking", end_lsn)
+                    if not last_lsn_processed:
+                        cur.send_feedback(flush_lsn=end_lsn)
                     break
 
                 state = consume_message(logical_streams, state, msg, time_extracted,
