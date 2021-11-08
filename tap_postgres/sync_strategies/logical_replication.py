@@ -145,6 +145,12 @@ def create_array_elem(elem, sql_datatype, conn_info):
         res = cur.fetchone()[0]
         return res
 
+def parse_time(time):
+    try:
+        return parse(time).isoformat() + '+00:00'
+    except:
+        return "9999-12-31T00:00:00+00:00"
+
 #pylint: disable=too-many-branches,too-many-nested-blocks
 def selected_value_to_singer_value_impl(elem, og_sql_datatype, conn_info):
     sql_datatype = og_sql_datatype.replace('[]', '')
@@ -152,17 +158,18 @@ def selected_value_to_singer_value_impl(elem, og_sql_datatype, conn_info):
     if elem is None:
         return elem
     if sql_datatype == 'timestamp without time zone':
-        return parse(elem).isoformat() + '+00:00'
+        return parse_time(elem)
     if sql_datatype == 'timestamp with time zone':
         if isinstance(elem, datetime.datetime):
             return elem.isoformat()
 
-        return parse(elem).isoformat()
+        return parse_time(elem)
     if sql_datatype == 'date':
         if  isinstance(elem, datetime.date):
             #logical replication gives us dates as strings UNLESS they from an array
             return elem.isoformat() + 'T00:00:00+00:00'
-        return parse(elem).isoformat() + "+00:00"
+
+        return parse_time(elem)
     if sql_datatype == 'time with time zone':
         return parse(elem).isoformat().split('T')[1]
     if sql_datatype == 'bit':
