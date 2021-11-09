@@ -21,6 +21,8 @@ LOGGER = singer.get_logger()
 
 UPDATE_BOOKMARK_PERIOD = 1000
 
+COUNTER_PRINT_PERIOD = 10000
+
 COUNTER={'U': 0, 'D': 0, 'I': 0, 'json_load': 0, 'read_message': 0, 'send_message': 0}
 
 def get_pg_version(cur):
@@ -471,8 +473,9 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                 #msg has been consumed. it has been processed
                 last_lsn_processed = msg.data_start
                 rows_saved = rows_saved + 1
-                if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
+                if rows_saved % COUNTER_PRINT_PERIOD == 0:
                     LOGGER.info("Rows saved = %s, Processed messages counter: %s", str(rows_saved), str(COUNTER))
+                if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
                     singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
             else:
                 now = datetime.datetime.now()
