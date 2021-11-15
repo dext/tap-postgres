@@ -383,9 +383,6 @@ def consume_message(streams, state, msg, time_extracted, conn_info, end_lsn, mes
     if msg.data_start > end_lsn:
         raise Exception("incorrectly attempting to flush an lsn({}) > end_lsn({})".format(msg.data_start, end_lsn))
 
-    msg.cursor.send_feedback(flush_lsn=msg.data_start)
-
-
     return state
 
 def locate_replication_slot(conn_info):
@@ -411,7 +408,7 @@ def locate_replication_slot(conn_info):
 
 
 def sync_tables(conn_info, logical_streams, state, end_lsn):
-    start_lsn = min([get_bookmark(state, s['tap_stream_id'], 'lsn') for s in logical_streams])
+    start_lsn = 0
     time_extracted = utils.now()
     slot = locate_replication_slot(conn_info)
     last_lsn_processed = None
@@ -426,6 +423,9 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
 
     for s in logical_streams:
         add_tables.append("{}.{}".format(s["metadata"][0]["metadata"]["schema-name"], s["table_name"]))
+
+    if "lsn_to_flush" in state:
+        start_lsn = state["lsn_to_flush"]
 
     conn = post_db.open_connection(conn_info, True)
     with conn.cursor() as cur:
@@ -448,13 +448,18 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
         except psycopg2.ProgrammingError:
             raise Exception("unable to start replication with logical replication slot {}".format(slot))
 
+        # initial flush lsn from the previous run
+        if "lsn_to_flush" in state:
+            LOGGER.info("Flushing lsn %s from from previous job run!", str(state["lsn_to_flush"]))
+            cur.send_feedback(flush_lsn=state["lsn_to_flush"])
+
         rows_saved = 0
         while True:
             poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
             if poll_duration > poll_total_seconds:
                 LOGGER.info("breaking after %s seconds of polling with no data", poll_duration)
                 if not last_lsn_processed:
-                    cur.send_feedback(flush_lsn=end_lsn)
+                    state["lsn_to_flush"] = end_lsn
                 break
 
             read_message_start = datetime.datetime.now()
@@ -464,8 +469,6 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                 begin_ts = datetime.datetime.now()
                 if msg.data_start > end_lsn:
                     LOGGER.info("gone past end_lsn %s for run. breaking", end_lsn)
-                    if not last_lsn_processed:
-                        cur.send_feedback(flush_lsn=end_lsn)
                     break
 
                 state = consume_message(logical_streams, state, msg, time_extracted,
@@ -476,6 +479,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                 if rows_saved % COUNTER_PRINT_PERIOD == 0:
                     LOGGER.info("Rows saved = %s, Processed messages counter: %s", str(rows_saved), str(COUNTER))
                 if rows_saved % UPDATE_BOOKMARK_PERIOD == 0:
+                    LOGGER.debug("Sending state to loader: %s", str(state))
                     singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
             else:
                 now = datetime.datetime.now()
