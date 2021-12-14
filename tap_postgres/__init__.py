@@ -123,7 +123,6 @@ def schema_for_column_datatype(c):
     if data_type in ('date', 'timestamp without time zone', 'timestamp with time zone'):
         schema['type'] = nullable_column('string', c.is_primary_key)
 
-        schema['format'] = 'date-time'
         return schema
 
     if data_type in FLOAT_TYPES:
@@ -181,7 +180,7 @@ def schema_for_column(c):
     elif c.sql_data_type == 'citext[]':
         column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_string_array'}
     elif c.sql_data_type == 'date[]':
-        column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_timestamp_array'}
+        column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_string_array'}
     elif c.sql_data_type == 'numeric[]':
         scale = post_db.numeric_scale(c)
         precision = post_db.numeric_precision(c)
@@ -208,9 +207,9 @@ def schema_for_column(c):
     elif c.sql_data_type == 'text[]':
         column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_string_array'}
     elif c.sql_data_type == 'timestamp without time zone[]':
-        column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_timestamp_array'}
+        column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_string_array'}
     elif c.sql_data_type == 'timestamp with time zone[]':
-        column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_timestamp_array'}
+        column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_string_array'}
     elif c.sql_data_type == 'time[]':
         column_schema['items'] = {'$ref': '#/definitions/sdc_recursive_string_array'}
     elif c.sql_data_type == 'uuid[]':
@@ -312,7 +311,7 @@ BASE_RECURSIVE_SCHEMAS = {'sdc_recursive_integer_array'   : {'type' : ['null', '
                           'sdc_recursive_number_array'    : {'type' : ['null', 'number', 'array'], 'items'  : {'$ref': '#/definitions/sdc_recursive_number_array'}},
                           'sdc_recursive_string_array'    : {'type' : ['null', 'string', 'array'], 'items'  : {'$ref': '#/definitions/sdc_recursive_string_array'}},
                           'sdc_recursive_boolean_array'   : {'type' : ['null', 'boolean', 'array'], 'items' : {'$ref': '#/definitions/sdc_recursive_boolean_array'}},
-                          'sdc_recursive_timestamp_array' : {'type' : ['null', 'string', 'array'], 'format' : 'date-time', 'items' : {'$ref': '#/definitions/sdc_recursive_timestamp_array'}},
+                          'sdc_recursive_timestamp_array' : {'type' : ['null', 'string', 'array'], 'items' : {'$ref': '#/definitions/sdc_recursive_timestamp_array'}},
                           'sdc_recursive_object_array'    : {'type' : ['null', 'object', 'array'], 'items' : {'$ref': '#/definitions/sdc_recursive_object_array'}}}
 
 def include_array_schemas(columns, schema):
