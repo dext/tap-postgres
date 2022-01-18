@@ -12,10 +12,10 @@ from dateutil.parser import parse
 import psycopg2
 from psycopg2 import sql
 import copy
-from select import select
 from functools import reduce
 import json
 import re
+import time
 
 LOGGER = singer.get_logger()
 
@@ -420,7 +420,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
     slot = locate_replication_slot(conn_info)
     last_lsn_processed = None
     poll_total_seconds = conn_info['logical_poll_total_seconds'] or 60 * 5  #we are willing to poll for a total of 3 minutes without finding a record
-    keep_alive_time = 10.0
+    keep_alive_time = 0.1
     begin_ts = datetime.datetime.now()
     add_tables = []
 
@@ -461,6 +461,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
             cur.send_feedback(flush_lsn=state["lsn_to_flush"])
 
         rows_saved = 0
+        idle_count = 0
         while True:
             poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
             if poll_duration > poll_total_seconds:
@@ -473,6 +474,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
             msg = cur.read_message()
             COUNTER['read_message'] += (datetime.datetime.now() - read_message_start).total_seconds()
             if msg:
+                idle_count = 0
                 begin_ts = datetime.datetime.now()
                 if msg.data_start > end_lsn:
                     LOGGER.info("gone past end_lsn %s for run. breaking", end_lsn)
@@ -489,16 +491,17 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                     LOGGER.debug("Sending state to loader: %s", str(state))
                     singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
             else:
-                now = datetime.datetime.now()
-                timeout = keep_alive_time - (now - cur.io_timestamp).total_seconds()
-                try:
-                    sel = select([cur], [], [], max(0, timeout))
-                    if not any(sel):
-                        LOGGER.info("no data for %s seconds. sending feedback to server with NO flush_lsn. just a keep-alive", timeout)
-                        cur.send_feedback()
-
-                except InterruptedError:
-                    pass  # recalculate timeout and continue
+                idle_count += 1
+                if idle_count > 100:
+                    idle_count = 0
+                    tmp_poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
+                    LOGGER.info(
+                        "No data for ~10 seconds (%s seconds from start). sending feedback to server with NO flush_lsn. just a keep-alive", 
+                        tmp_poll_duration
+                    )
+                    cur.send_feedback()
+                else:
+                    time.sleep(keep_alive_time)
 
     bookmark_lsn = last_lsn_processed if last_lsn_processed else end_lsn
     LOGGER.info("Finished processing messages - counter: %s", str(COUNTER))
