@@ -436,7 +436,8 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
 
     conn = post_db.open_connection(conn_info, True)
     with conn.cursor() as cur:
-        LOGGER.info("Starting Logical Replication for %s(%s): %s -> %s. poll_total_seconds: %s", list(map(lambda s: s['tap_stream_id'], logical_streams)), slot, start_lsn, end_lsn, poll_total_seconds)
+        LOGGER.info("Starting Logical Replication from slot %s: %s -> %s. poll_total_seconds: %s", slot, start_lsn, end_lsn, poll_total_seconds)
+        LOGGER.info("Starting at bookmark: %s", list(map(lambda s: s['tap_stream_id'], logical_streams)))
 
         replication_params = {"slot_name": slot,
                               "decode": True,
