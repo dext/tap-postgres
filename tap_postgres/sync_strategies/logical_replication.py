@@ -32,6 +32,8 @@ def on_sigterm_received():
 signal.signal(signal.SIGTERM, on_sigterm_received)
 
 
+START_TIME = datetime.datetime.now()
+
 def get_pg_version(cur):
     cur.execute("SELECT version()")
     res = cur.fetchone()[0]
@@ -430,6 +432,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
     keep_alive_time = 0.1
     begin_ts = datetime.datetime.now()
     add_tables = []
+    max_run_time = 1800 #max script run time for the extractor script
 
     for s in logical_streams:
         sync_common.send_schema_message(s, ['lsn'])
@@ -484,6 +487,11 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                 LOGGER.info("breaking after %s seconds of polling with no data", poll_duration)
                 if not last_lsn_processed:
                     state["lsn_to_flush"] = end_lsn
+                break
+            
+            script_run_time = (datetime.datetime.now() - START_TIME).total_seconds()
+            if script_run_time > max_run_time:
+                LOGGER.info("breaking after %s seconds of script running (more then the maximum %s seconds)!", script_run_time, max_run_time)
                 break
 
             read_message_start = datetime.datetime.now()
