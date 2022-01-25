@@ -16,14 +16,21 @@ from functools import reduce
 import json
 import re
 import time
+import signal
+from os.path import exists
 
 LOGGER = singer.get_logger()
-
 UPDATE_BOOKMARK_PERIOD = 1000
-
 COUNTER_PRINT_PERIOD = 10000
+COUNTER = {'U': 0, 'D': 0, 'I': 0, 'json_load': 0, 'read_message': 0, 'send_message': 0}
+SIGTERM_RECEIVED = False
 
-COUNTER={'U': 0, 'D': 0, 'I': 0, 'json_load': 0, 'read_message': 0, 'send_message': 0}
+
+def on_sigterm_received():
+    SIGTERM_RECEIVED = True
+
+signal.signal(signal.SIGTERM, on_sigterm_received)
+
 
 def get_pg_version(cur):
     cur.execute("SELECT version()")
@@ -464,6 +471,14 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
         rows_saved = 0
         idle_count = 0
         while True:
+            if exists('/tmp/terminating_pod'):
+                LOGGER.info("SIGTERM received from file '/tmp/terminating_pod'. Exiting")
+                break
+
+            if SIGTERM_RECEIVED:
+                LOGGER.info("SIGTERM received from parent process. Exiting")
+                break
+
             poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
             if poll_duration > poll_total_seconds:
                 LOGGER.info("breaking after %s seconds of polling with no data", poll_duration)
