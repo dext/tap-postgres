@@ -473,13 +473,18 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
 
         rows_saved = 0
         idle_count = 0
+        terminated_with_no_changes = False
         while True:
             if exists('/tmp/terminating_pod'):
                 LOGGER.info("SIGTERM received from file '/tmp/terminating_pod'. Exiting")
+                if not last_lsn_processed:
+                    terminated_with_no_changes = True
                 break
 
             if SIGTERM_RECEIVED:
                 LOGGER.info("SIGTERM received from parent process. Exiting")
+                if not last_lsn_processed:
+                    terminated_with_no_changes = True
                 break
 
             poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
@@ -488,7 +493,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                 if not last_lsn_processed:
                     state["lsn_to_flush"] = end_lsn
                 break
-            
+
             script_run_time = (datetime.datetime.now() - START_TIME).total_seconds()
             if script_run_time > max_run_time:
                 LOGGER.info("breaking after %s seconds of script running (more then the maximum %s seconds)!", script_run_time, max_run_time)
@@ -520,18 +525,19 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                     idle_count = 0
                     tmp_poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
                     LOGGER.info(
-                        "No data for ~10 seconds (%s seconds from start). sending feedback to server with NO flush_lsn. just a keep-alive", 
+                        "No data for ~10 seconds (%s seconds from start). sending feedback to server with NO flush_lsn. just a keep-alive",
                         tmp_poll_duration
                     )
                     cur.send_feedback()
                 else:
                     time.sleep(keep_alive_time)
 
-    bookmark_lsn = last_lsn_processed if last_lsn_processed else end_lsn
     LOGGER.info("Finished processing messages - counter: %s", str(COUNTER))
-    for s in logical_streams:
-        LOGGER.info("updating bookmark for stream %s to last_lsn_processed %s", s['tap_stream_id'], bookmark_lsn)
-        state = singer.write_bookmark(state, s['tap_stream_id'], 'lsn', bookmark_lsn)
+    if not terminated_with_no_changes:
+        bookmark_lsn = last_lsn_processed if last_lsn_processed else end_lsn
+        for s in logical_streams:
+            LOGGER.info("updating bookmark for stream %s to last_lsn_processed %s", s['tap_stream_id'], bookmark_lsn)
+            state = singer.write_bookmark(state, s['tap_stream_id'], 'lsn', bookmark_lsn)
 
     singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
     return state
