@@ -432,7 +432,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
     keep_alive_time = 0.1
     begin_ts = datetime.datetime.now()
     add_tables = []
-    max_run_time = 1800 #max script run time for the extractor script
+    max_run_time = 600 #max script run time for the extractor script
 
     for s in logical_streams:
         sync_common.send_schema_message(s, ['lsn'])
