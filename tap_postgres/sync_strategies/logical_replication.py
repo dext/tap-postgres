@@ -429,10 +429,10 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
     slot = locate_replication_slot(conn_info)
     last_lsn_processed = None
     poll_total_seconds = conn_info['logical_poll_total_seconds'] or 60 * 5  #we are willing to poll for a total of 3 minutes without finding a record
-    keep_alive_time = 0.1
+    keep_alive_time = 0.001
     begin_ts = datetime.datetime.now()
     add_tables = []
-    max_run_time = 600 #max script run time for the extractor script
+    max_run_time = conn_info['max_script_run_time'] or 1800 #max script run time for the extractor script
 
     for s in logical_streams:
         sync_common.send_schema_message(s, ['lsn'])
@@ -446,7 +446,14 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
 
     conn = post_db.open_connection(conn_info, True)
     with conn.cursor() as cur:
-        LOGGER.info("Starting Logical Replication from slot %s: %s -> %s. poll_total_seconds: %s", slot, start_lsn, end_lsn, poll_total_seconds)
+        LOGGER.info(
+            "Starting Logical Replication from slot %s: %s -> %s. poll_total_seconds: %s. max_run_time: %s", 
+            slot, 
+            start_lsn, 
+            end_lsn, 
+            poll_total_seconds, 
+            max_run_time
+        )
         LOGGER.info("Starting at bookmark: %s", list(map(lambda s: s['tap_stream_id'], logical_streams)))
 
         replication_params = {"slot_name": slot,
@@ -496,6 +503,8 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
 
             script_run_time = (datetime.datetime.now() - START_TIME).total_seconds()
             if script_run_time > max_run_time:
+                if not last_lsn_processed:
+                    terminated_with_no_changes = True
                 LOGGER.info("breaking after %s seconds of script running (more then the maximum %s seconds)!", script_run_time, max_run_time)
                 break
 
@@ -521,7 +530,7 @@ def sync_tables(conn_info, logical_streams, state, end_lsn):
                     singer.write_message(singer.StateMessage(value=copy.deepcopy(state)))
             else:
                 idle_count += 1
-                if idle_count > 100:
+                if idle_count > 10000:
                     idle_count = 0
                     tmp_poll_duration = (datetime.datetime.now() - begin_ts).total_seconds()
                     LOGGER.info(
